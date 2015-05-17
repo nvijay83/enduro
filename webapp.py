@@ -7,13 +7,21 @@ from flask import Flask, request, render_template, redirect, url_for, abort, fla
 #from flask.ext.security import login_required
 from db import *
 from operator import itemgetter
+from race_setup import *
 
 app = Flask(__name__, static_folder='webapp/static', template_folder='webapp/templates')
 #app.config.from_envvar('WEBAPP_SETTINGS')
 
+@app.route('/start',methods=['GET','POST'])
+def start():
+  temp(1103991,180,180,1,164056)
+
 @app.route('/live',methods=['GET','POST'])
 def live():
   karts = get_race()
+  laps = get_db_lap()
+  print laps.keys()
+  print karts.keys()
   start = "<td><p>"
   end = "</p></td>"
   glb=""
@@ -23,7 +31,12 @@ def live():
   l = sorted(l)
   for i in l:
     s=s+"<tr>"+start+str(i)+end
-    s=s+start+str(karts[str(i)][0])+end+"</tr>\n"
+    s=s+start+str(karts[str(i)][0])+end
+    print laps[i]
+    if len(laps) > 0:
+      s=s+start+str(laps[i])+end+"</tr>\n"
+    else:
+      s = s + "</tr>\n"
   f = open('live.html','r')
   for i in f:
     if "insert_here" in i:

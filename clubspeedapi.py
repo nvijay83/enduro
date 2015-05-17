@@ -2,6 +2,8 @@ import requests
 from lxml import html
 import json
 import os.path
+import time
+from pprint import pprint
 
 def create_cust_directory():
   try:
@@ -118,7 +120,7 @@ def get_alllaps(tree):
     if len(s) > 1:
       k = s[1].strip().encode('ascii','ignore')[:-1]
     else:
-      k = 0
+      k = '0'
     if i is 1 and first is True:
       laps.append((i,j,k))
       first = False
@@ -135,6 +137,25 @@ def get_alllaps(tree):
   data[cust[count]] = laps
   return data
 
+def get_numlaps(data):
+  num_laps = {}
+  for i in data:
+    temp = data[i]
+    for j in range(len(temp)-1,-1,-1):
+      if temp[j][2] == '0':
+        continue
+      else:
+        num_laps[i] = temp[j][0]
+        break
+  return num_laps
+
+'''incomplete'''
+def in_progress_diff(tree1, tree2):
+  data1 = get_alllaps(tree1)
+  data2 = get_alllaps(tree2)
+  laps1 = get_numlaps(data1)
+  laps2 = get_numlaps(data2)
+
 def get_totallaps(tree):
   return tree.xpath("//td[@class='Laps']/span/text()")
 
@@ -148,6 +169,38 @@ def get_tree(url):
   print "Processing url: %s"%(url)
   page = requests.get(url)
   return html.fromstring(page.text)
+
+def get_cust_map_file():
+  return ".db/cust_map.json"
+
+def write_cust_map_db(cust):
+  with open(get_cust_map_file(),'w') as fp:
+    json.dump(cust, fp)
+
+def get_cust_map_db():
+  cust = {}
+  try:
+    with open(get_cust_map_file(),'r') as fp:
+      cust = json.load(fp)
+  except IOError:
+    print "Cust map doesn't exist"
+  return cust
+
+def get_cust_map_name(value):
+  url = get_url_cust(value)
+  tree = get_tree(url)
+  name = tree.xpath("//span[@id='lblRacerName']/text()")[0].strip().encode('ascii','ignore')
+  return name
+  
+def get_cust_map_name_db(value):
+  value = str(value)
+  cust = get_cust_map_db()
+  if value in cust:
+    return cust[value]
+  else:
+    cust[value] = get_cust_map_name(value)
+    write_cust_map_db(cust)
+    return cust[value]
 
 def populate_cust_db(directory, seed):
   cust = {}
@@ -223,8 +276,8 @@ def write_heat_db(data, filename):
   Return True if written to file
   returns False if the race is incomplete
 '''
-def get_and_write_completed_heat(heatno, cached):
-  data,complete,cached= get_heat(heatno, cached)
+def get_and_write_completed_heat(heatno, tree, cached):
+  data,complete,cached= get_heat(heatno, tree, cached)
   if complete is True:
     write_heat_db(data, heatno)
     return True
@@ -241,7 +294,9 @@ def get_type(tree):
     return tree.xpath("//span[@id='lblRaceType']/text()")[0].encode('ascii','ignore')
   return None
 
-'''goes + and - hint/2'''
+'''
+  looks for not scheduled and inprogress races
+  goes + and - hint/2'''
 def look_for_races(seed, hint):
   l = []
   ''' 0 not scheduled
@@ -251,13 +306,19 @@ def look_for_races(seed, hint):
   heatno = int(seed)
   heatno = heatno - (hint/2)
   for i in range(heatno, heatno+hint):
+    print "processing heatno %d"%(i)
+    if is_heat_cached(i):
+      print "%d in db"%(i)
+      continue
     url = get_url_heat(i)
     tree = get_tree(url)
-    title = get_title() 
+    title = get_title(tree) 
     if title == "Server Error":
       print "Server error: %s",(url)
       continue
     if is_heat_complete(tree) is True:
+      '''Now that we got something lets write this to db. save bandwidth'''
+      get_and_write_completed_heat(i,tree,True) 
       complete = 1
     else:
       data = get_alllaps(tree)
@@ -271,15 +332,16 @@ def look_for_races(seed, hint):
 
   return l
 
-def get_heat(heatno, cached):
+def get_heat(heatno, tree, cached):
   if cached == True:
     data = get_heat_db(heatno)
     if data is not None:
       return data, True, True
-  url = get_url_heat(heatno)
   race = {}
   racer = {}
-  tree = get_tree(url)
+  if tree == None:
+    url = get_url_heat(heatno)
+    tree = get_tree(url)
   if not is_valid_heat(tree):
     raise Exception("Not Valid Heat Race")
   complete = is_heat_complete(tree)
@@ -311,6 +373,7 @@ def get_heat(heatno, cached):
     count = count + 1
   return race, True, False
 
+'''
 create_cust_directory()
 data,cached = get_cust_heats(1038352,False)
 write_cust_db(1038352, data)
@@ -318,7 +381,7 @@ create_heat_directory()
 if data is not None:
   for i,j in data[1038352]:
     get_and_write_completed_heat(i, True)
-
+'''
 #print data
 #write_cust_db(1038352, data)
 #populate_cust_db('.',1038352)
@@ -331,14 +394,30 @@ if data is not None:
 
 '''
 s = ""
-f = open('Desktop/clubspeed.html','r')
+f = open('clubspeed.html','r')
 for i in f:
   s = s+i
-url = get_url_heat(163952)
-tree = get_tree(url)
-#tree = html.fromstring(page.text)
+#url = get_url_heat(163952)
+#tree = get_tree(url)
+tree = html.fromstring(s)
+data =  get_alllaps(tree)
+print get_numlaps(data)
 print is_valid_heat(tree)
 print is_heat_in_progress(tree)
 print is_heat_complete(tree)
-print get_alllaps(tree)
-  '''
+'''
+'''
+races = look_for_races(164014,100)
+pprint(races)
+for i in races:
+  heat,a,b,complete = i
+  if complete == 2:
+    print "heat in progress %d"%(heat)
+    for j in range(0,10):
+      time.sleep(5)
+      url = get_url_heat(heat)
+      tree =  get_tree(url)
+      if is_heat_in_progress(tree):
+        laps=get_alllaps(tree)
+        print get_numlaps(laps)
+'''
